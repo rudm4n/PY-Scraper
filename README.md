@@ -19,6 +19,8 @@ Cosa viene scaricato dai post:
 - non vengono scaricati i media bloccati (post a pagamento non acquistati) né quelli
   protetti da DRM (video non HLS, o HLS con cifratura diversa da AES-128).
 
+Guida passo passo in italiano: [GUIDA.md](GUIDA.md).
+
 ## Installazione
 
 ```bash
