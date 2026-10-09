@@ -30,7 +30,18 @@ Per i video in `.mp4` serve anche `ffmpeg` (es. `sudo apt install ffmpeg`).
 
 ## Credenziali
 
-`privacy-scraper auth` chiede due valori presi dal browser:
+Il modo più semplice: salva un HAR da Firefox (F12 > Rete > ⚙ > Salva tutto come HAR)
+mentre sei loggato su privacy.com.br, poi esegui:
+
+```bash
+privacy-scraper auth --from-har            # usa il HAR di Privacy più recente
+privacy-scraper auth --from-har FILE.har   # oppure un file preciso
+```
+
+Il comando legge `Authorization` e `User-Agent` dal HAR originale (non da quello pulito).
+Dopo, cancella il HAR: contiene la tua sessione.
+
+In alternativa `privacy-scraper auth` chiede i due valori a mano:
 
 1. apri privacy.com.br e fai login;
 2. premi F12, scheda **Rete**, ricarica la pagina;

@@ -170,3 +170,32 @@ def test_download_all_with_hls_fetcher(tmp_path, monkeypatch):
     assert res.failed == []
     assert res.downloaded == [tmp_path / "alice" / "m1.ts"]
     assert db.is_downloaded(items[0])
+
+
+def har_file(tmp_path: Path, entries: list[tuple[str, dict[str, str]]]) -> Path:
+    log = {"log": {"entries": [
+        {"request": {"url": url, "headers": [{"name": k, "value": v} for k, v in h.items()]}}
+        for url, h in entries
+    ]}}
+    p = tmp_path / "privacy.com.br_Archive.har"
+    p.write_text(json.dumps(log), encoding="utf-8")
+    return p
+
+
+def test_auth_from_har_takes_latest_service_request(tmp_path):
+    p = har_file(tmp_path, [
+        ("https://service.privacy.com.br/a", {"Authorization": "Bearer OLD", "User-Agent": "UA1"}),
+        ("https://service.privacy.com.br/b", {"Authorization": "Bearer NEW", "User-Agent": "UA2"}),
+        ("https://modules.privacy.com.br/c", {"Authorization": "Bearer OTHER"}),
+    ])
+    auth = Auth.from_har(p)
+    assert auth.extra_headers == {"Authorization": "Bearer NEW"} and auth.user_agent == "UA2"
+
+
+def test_auth_from_cleaned_har_fails(tmp_path):
+    import pytest
+    from privacy_scraper.auth import AuthError
+
+    p = har_file(tmp_path, [("https://service.privacy.com.br/a", {"Authorization": "REDACTED"})])
+    with pytest.raises(AuthError, match="non quello pulito"):
+        Auth.from_har(p)

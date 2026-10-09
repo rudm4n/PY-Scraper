@@ -15,7 +15,24 @@ from .downloader import download_all, make_fetcher
 from .models import Area
 
 
+def find_latest_har() -> Path | None:
+    """HAR di Privacy più recente nelle cartelle dove Firefox di solito salva."""
+    home = Path.home()
+    found: list[Path] = []
+    for folder in (home, home / "Scaricati", home / "Downloads", home / "Desktop", home / "Scrivania"):
+        if folder.is_dir():
+            found += [p for p in folder.glob("*privacy*.har") if "clean" not in p.name.lower()]
+    return max(found, key=lambda p: p.stat().st_mtime, default=None)
+
+
 def cmd_auth(args: argparse.Namespace) -> int:
+    if args.from_har is not None:
+        har = Path(args.from_har).expanduser() if args.from_har else find_latest_har()
+        if har is None:
+            print("Nessun HAR di Privacy trovato in Home, Scaricati o Downloads.", file=sys.stderr)
+            return 2
+        print(f"Leggo le credenziali da {har}")
+        return _save_and_verify(Auth.from_har(har))
     print("Prendi i valori dal browser, con privacy.com.br aperto e loggato:")
     print("  F12 > Rete > clicca una richiesta a service.privacy.com.br > Intestazioni")
     print("  > Intestazioni richiesta. Copia il valore di Authorization e di User-Agent.")
@@ -25,7 +42,12 @@ def cmd_auth(args: argparse.Namespace) -> int:
         print("Authorization vuoto: niente salvato.", file=sys.stderr)
         return 2
     user_agent = input("User-Agent: ").strip()
-    auth = Auth(user_agent=user_agent, extra_headers={"Authorization": authorization})
+    return _save_and_verify(
+        Auth(user_agent=user_agent, extra_headers={"Authorization": authorization})
+    )
+
+
+def _save_and_verify(auth: Auth) -> int:
     path = auth.save()
     print(f"\nCredenziali salvate in {path} (permessi 600).")
     api = PrivacyAPI(auth)
@@ -133,7 +155,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth", help="salva cookie e header della tua sessione").set_defaults(func=cmd_auth)
+    a = sub.add_parser("auth", help="salva le credenziali della tua sessione")
+    a.add_argument(
+        "--from-har", nargs="?", const="", metavar="FILE",
+        help="prendi le credenziali da un HAR di Firefox (senza FILE: il più recente)",
+    )
+    a.set_defaults(func=cmd_auth)
 
     c = sub.add_parser("config", help="mostra o modifica la configurazione")
     c.add_argument("--save-dir")

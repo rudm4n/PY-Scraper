@@ -11,6 +11,7 @@ import json
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .config import config_dir
 
@@ -37,6 +38,29 @@ class Auth:
             headers["Cookie"] = self.cookie
         headers.update(self.extra_headers)
         return headers
+
+    @classmethod
+    def from_har(cls, path: Path, host: str = "service.privacy.com.br") -> "Auth":
+        """Prende Authorization e User-Agent dall'ultima richiesta a host nel HAR."""
+        try:
+            entries = json.loads(path.read_text(encoding="utf-8"))["log"]["entries"]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise AuthError(f"{path}: non è un file HAR leggibile ({exc})") from exc
+        for entry in reversed(entries):
+            request = entry.get("request") or {}
+            if urlsplit(request.get("url", "")).hostname != host:
+                continue
+            headers = {h["name"].lower(): h["value"] for h in request.get("headers", [])}
+            authorization = headers.get("authorization", "").strip()
+            if authorization and authorization != "REDACTED":
+                return cls(
+                    user_agent=headers.get("user-agent", ""),
+                    extra_headers={"Authorization": authorization},
+                )
+        raise AuthError(
+            f"{path}: nessuna richiesta a {host} con Authorization. Usa il HAR originale "
+            "salvato da Firefox, non quello pulito."
+        )
 
     @staticmethod
     def default_path() -> Path:
