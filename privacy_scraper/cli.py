@@ -121,6 +121,13 @@ def cmd_scrape(args: argparse.Namespace) -> int:
                 except NotImplementedError as exc:
                     print(f"   ! sezione non ancora supportata ({exc}), salto", file=sys.stderr)
                     continue
+                st = api.stats
+                if st:
+                    print(
+                        f"   post letti {st['posts']}: media sbloccati {st['ok']}, "
+                        f"bloccati (a pagamento) {st['locked']}, DRM {st['drm']}, "
+                        f"tipo sconosciuto {st['unknown']}"
+                    )
                 if args.dry_run:
                     for m in items:
                         print(f"   {m.media_type.value}\t{m.id}\t{m.url}")

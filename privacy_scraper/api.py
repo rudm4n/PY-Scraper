@@ -17,6 +17,7 @@ import base64
 import binascii
 import json
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterator
 from urllib.parse import urlsplit
@@ -75,18 +76,30 @@ def image_ext(url: str) -> str:
     return ext if ext in _IMAGE_EXTS else ""
 
 
-def parse_post_media(post: dict[str, Any], creator: Creator, area: Area) -> Iterator[Media]:
-    """Media scaricabili di un post: salta quelli bloccati e quelli con DRM."""
+def parse_post_media(
+    post: dict[str, Any], creator: Creator, area: Area, stats: Counter | None = None
+) -> Iterator[Media]:
+    """Media scaricabili di un post: salta quelli bloccati e quelli con DRM.
+
+    Se c'è stats, conta i media visti per motivo ("ok", "locked", "drm", "unknown").
+    """
+    stats = stats if stats is not None else Counter()
     post_id = str(post.get("postId", ""))
     created = _parse_date(post.get("publishedDate"))
     text = post.get("description") or ""
     for m in post.get("medias") or []:
         media_type = _MEDIA_TYPES.get(str(m.get("type", "")).lower())
         url = m.get("url")
-        if m.get("isLocked") or not url or not m.get("mediaId") or media_type is None:
+        if m.get("isLocked") or not url:
+            stats["locked"] += 1
+            continue
+        if not m.get("mediaId") or media_type is None:
+            stats["unknown"] += 1
             continue
         if m.get("drmMediaId"):
+            stats["drm"] += 1
             continue
+        stats["ok"] += 1
         ext = ""
         if media_type is MediaType.IMAGE:
             ext = "gif" if m.get("type") == "gif" else image_ext(url)
@@ -106,6 +119,8 @@ def parse_post_media(post: dict[str, Any], creator: Creator, area: Area) -> Iter
 class PrivacyAPI:
     def __init__(self, auth: Auth, *, delay: float = 0.5, client: httpx.Client | None = None):
         self._delay = delay
+        # Riepilogo dell'ultima chiamata a media(): post letti e media per motivo.
+        self.stats: Counter = Counter()
         self.client = client or httpx.Client(
             base_url=BASE_URL,
             headers={**auth.headers(), **site_headers()},
@@ -178,6 +193,7 @@ class PrivacyAPI:
 
     def media(self, creator: Creator, area: Area) -> Iterator[Media]:
         """Tutti i media sbloccati di un creator in una sezione."""
+        self.stats = Counter()
         handlers = {
             Area.POSTS: self._posts,
             Area.MESSAGES: self._messages,
@@ -195,9 +211,11 @@ class PrivacyAPI:
             new = [p for p in items if p.get("postId") not in seen]
             for post in new:
                 seen.add(post.get("postId"))
-                yield from parse_post_media(post, creator, Area.POSTS)
-            # I post fissati si ripetono: ci si ferma su pagina corta o senza novità.
-            if len(items) < PAGE_SIZE or not new:
+                self.stats["posts"] += 1
+                yield from parse_post_media(post, creator, Area.POSTS, self.stats)
+            # Una pagina può avere meno di PAGE_SIZE post anche se non è l'ultima:
+            # ci si ferma solo su pagina vuota o fatta solo di post già visti.
+            if not new:
                 break
 
     def _messages(self, creator: Creator) -> Iterator[Media]:

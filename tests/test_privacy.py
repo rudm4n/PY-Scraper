@@ -56,7 +56,7 @@ def test_parse_post_media_skips_locked_and_drm():
     assert items[0].created_at.year == 2026 and items[0].post_id == "p1"
 
 
-def test_posts_paginate_by_offset_until_short_page():
+def test_posts_paginate_by_offset_until_empty_page():
     calls = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -66,13 +66,19 @@ def test_posts_paginate_by_offset_until_short_page():
             items = [post(f"p{i}", [img(f"m{i}")]) for i in range(10)]
         elif offset == 10:
             items = [post("p0", [img("m0")]), post("p10", [img("m10")])]  # p0 fissato, ripetuto
+        elif offset == 20:
+            items = [post("p20", [img("m20"), {"isLocked": True, "type": "video"}])]
+        elif offset == 30:
+            items = []
         else:
             raise AssertionError("pagina in più")
         return httpx.Response(200, json={"items": items})
 
-    media = list(make_api(handler).media(CREATOR, Area.POSTS))
-    assert calls == ["/timelinequeries/profile/0/10/alice", "/timelinequeries/profile/10/10/alice"]
-    assert [m.id for m in media] == [f"m{i}" for i in range(11)]
+    api = make_api(handler)
+    media = list(api.media(CREATOR, Area.POSTS))
+    assert calls == [f"/timelinequeries/profile/{o}/10/alice" for o in (0, 10, 20, 30)]
+    assert [m.id for m in media] == [f"m{i}" for i in range(11)] + ["m20"]
+    assert api.stats["posts"] == 12 and api.stats["ok"] == 12 and api.stats["locked"] == 1
 
 
 def test_subscriptions_stop_when_no_new_creators():
