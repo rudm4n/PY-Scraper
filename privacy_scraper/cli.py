@@ -7,28 +7,36 @@ from pathlib import Path
 
 import httpx
 
-from .api import PrivacyAPI
+from .api import ApiError, PrivacyAPI, site_headers
 from .auth import Auth, AuthError
 from .config import Config
 from .db import MediaDB
-from .downloader import download_all
+from .downloader import download_all, make_fetcher
 from .models import Area
 
 
 def cmd_auth(args: argparse.Namespace) -> int:
-    print("Incolla i valori presi dal browser (F12 > Network > una richiesta API > Headers).")
-    print("Non vengono mostrati a schermo. Invio vuoto per saltare un campo.\n")
-    cookie = getpass.getpass("Cookie: ").strip()
+    print("Prendi i valori dal browser, con privacy.com.br aperto e loggato:")
+    print("  F12 > Rete > clicca una richiesta a service.privacy.com.br > Intestazioni")
+    print("  > Intestazioni richiesta. Copia il valore di Authorization e di User-Agent.")
+    print("Authorization non viene mostrato a schermo.\n")
+    authorization = getpass.getpass("Authorization: ").strip()
+    if not authorization:
+        print("Authorization vuoto: niente salvato.", file=sys.stderr)
+        return 2
     user_agent = input("User-Agent: ").strip()
-    extra: dict[str, str] = {}
-    print("Altri header richiesti (es. Authorization). Riga vuota per finire.")
-    while True:
-        name = input("  nome header: ").strip()
-        if not name:
-            break
-        extra[name] = getpass.getpass(f"  valore di {name}: ").strip()
-    path = Auth(cookie=cookie, user_agent=user_agent, extra_headers=extra).save()
+    auth = Auth(user_agent=user_agent, extra_headers={"Authorization": authorization})
+    path = auth.save()
     print(f"\nCredenziali salvate in {path} (permessi 600).")
+    api = PrivacyAPI(auth)
+    try:
+        me = api.me()
+        print(f"Login verificato: {me.get('nickname', '?').strip()}")
+    except (ApiError, httpx.HTTPError) as exc:
+        print(f"Attenzione, verifica fallita: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        api.close()
     return 0
 
 
@@ -63,9 +71,16 @@ def cmd_scrape(args: argparse.Namespace) -> int:
     areas = [Area(a) for a in (args.areas or cfg.areas)]
     save_dir = Path(args.save_dir or cfg.save_dir).expanduser()
 
-    api = PrivacyAPI(Auth.load(), delay=cfg.request_delay_seconds)
+    auth = Auth.load()
+    api = PrivacyAPI(auth, delay=cfg.request_delay_seconds)
     db = MediaDB(save_dir / ".privacy.db")
-    dl_client = httpx.Client(timeout=httpx.Timeout(30.0, read=300.0), follow_redirects=True)
+    dl_headers = site_headers()
+    if auth.user_agent:
+        dl_headers["User-Agent"] = auth.user_agent
+    dl_client = httpx.Client(
+        headers=dl_headers, timeout=httpx.Timeout(30.0, read=300.0), follow_redirects=True
+    )
+    fetch = make_fetcher(api.video_token, dl_headers)
     total_failed = 0
     try:
         creators = api.subscriptions()
@@ -79,7 +94,11 @@ def cmd_scrape(args: argparse.Namespace) -> int:
         for creator in creators:
             for area in areas:
                 print(f"== {creator.username} / {area.value}")
-                items = list(api.media(creator, area))
+                try:
+                    items = list(api.media(creator, area))
+                except NotImplementedError as exc:
+                    print(f"   ! sezione non ancora supportata ({exc}), salto", file=sys.stderr)
+                    continue
                 if args.dry_run:
                     for m in items:
                         print(f"   {m.media_type.value}\t{m.id}\t{m.url}")
@@ -91,6 +110,7 @@ def cmd_scrape(args: argparse.Namespace) -> int:
                     db=db,
                     client=dl_client,
                     max_workers=cfg.max_concurrent_downloads,
+                    fetch=fetch,
                 )
                 total_failed += len(res.failed)
                 print(
@@ -139,8 +159,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except (AuthError, NotImplementedError) as exc:
+    except (AuthError, ApiError, NotImplementedError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
+        return 2
+    except httpx.HTTPError as exc:
+        print(f"Errore di rete: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130

@@ -10,7 +10,10 @@ from typing import Callable, Iterable
 import httpx
 
 from .db import MediaDB
+from .hls import download_hls, video_file_id
 from .models import Media
+
+Fetcher = Callable[[httpx.Client, Media, Path], Path]
 
 _UNSAFE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -64,6 +67,29 @@ def _fetch(client: httpx.Client, media: Media, target: Path, retries: int = 3) -
     raise AssertionError("unreachable")
 
 
+def make_fetcher(token_for: Callable[[str], str], extra_headers: dict[str, str] | None = None,
+                 retries: int = 3) -> Fetcher:
+    """Fetcher che scarica i file normali con _fetch e i video HLS con download_hls.
+
+    token_for(file_id) restituisce il token video (header "content").
+    """
+
+    def fetch(client: httpx.Client, media: Media, target: Path) -> Path:
+        if not media.is_hls:
+            return _fetch(client, media, target)
+        for attempt in range(1, retries + 1):
+            try:
+                token = token_for(video_file_id(media.url))
+                return download_hls(client, media.url, target, token, extra_headers)
+            except httpx.HTTPError:
+                if attempt == retries:
+                    raise
+                time.sleep(2**attempt)
+        raise AssertionError("unreachable")
+
+    return fetch
+
+
 def download_all(
     items: Iterable[Media],
     *,
@@ -72,6 +98,7 @@ def download_all(
     db: MediaDB,
     client: httpx.Client,
     max_workers: int = 4,
+    fetch: Fetcher = _fetch,
     on_done: Callable[[Media, Path | None, str | None], None] | None = None,
 ) -> DownloadResult:
     result = DownloadResult()
@@ -86,7 +113,7 @@ def download_all(
         todo.append((media, save_dir / render_path(template, media)))
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_fetch, client, m, p): m for m, p in todo}
+        futures = {pool.submit(fetch, client, m, p): m for m, p in todo}
         for fut in as_completed(futures):
             media = futures[fut]
             try:

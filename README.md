@@ -4,13 +4,20 @@ CLI Python ispirata a [of-scraper](https://github.com/datawhores/OF-Scraper) per
 in locale i contenuti dei creator a cui **sei abbonato** su Privacy (privacy.com.br): post, messaggi,
 storie e acquisti.
 
-Usa la sessione del tuo browser (cookie + header), quindi scarica solo quello che il tuo
+Usa la sessione del tuo browser (header `Authorization`), quindi scarica solo quello che il tuo
 account può già vedere.
 
-> **Stato:** la parte generica è pronta: CLI, configurazione, credenziali, download in
-> parallelo con retry e registro dei file già scaricati. Gli endpoint del sito
-> (`privacy_scraper/api.py`) vanno ancora implementati partendo da un file HAR del sito.
-> Se dal HAR risulta che Privacy non ha le storie, l'area `stories` va tolta.
+> **Stato:** funzionano abbonamenti e post (immagini e video). Messaggi, storie e
+> acquisti non sono ancora supportati: servono altri file HAR del sito, e per ora
+> `scrape` salta quelle sezioni con un avviso.
+
+Cosa viene scaricato dai post:
+
+- immagini, così come le serve il sito (filigrana compresa);
+- video HLS alla qualità più alta, decifrati e uniti. Con `ffmpeg` installato diventano
+  `.mp4`, altrimenti restano `.ts`;
+- non vengono scaricati i media bloccati (post a pagamento non acquistati) né quelli
+  protetti da DRM.
 
 ## Installazione
 
@@ -19,11 +26,25 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
+Per i video in `.mp4` serve anche `ffmpeg` (es. `sudo apt install ffmpeg`).
+
+## Credenziali
+
+`privacy-scraper auth` chiede due valori presi dal browser:
+
+1. apri privacy.com.br e fai login;
+2. premi F12, scheda **Rete**, ricarica la pagina;
+3. clicca una richiesta verso `service.privacy.com.br`, poi **Intestazioni**;
+4. in **Intestazioni richiesta** copia il valore di `Authorization` e di `User-Agent`.
+
+Il comando verifica subito le credenziali. Quando la sessione scade (errore 401/403),
+ripeti `privacy-scraper auth`.
+
 ## Uso
 
 ```bash
-privacy-scraper auth                      # incolla Cookie, User-Agent e header richiesti
-privacy-scraper config --save-dir ~/CF    # opzionale
+privacy-scraper auth                      # incolla Authorization e User-Agent
+privacy-scraper config --save-dir ~/Privacy   # opzionale
 privacy-scraper list                      # creator a cui sei abbonato
 privacy-scraper scrape                    # tutto, per tutti i creator
 privacy-scraper scrape -u alice bob -a posts messages

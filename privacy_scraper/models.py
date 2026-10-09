@@ -36,9 +36,19 @@ class Media:
     post_id: str
     created_at: datetime
     text: str = ""
+    # Estensione nota a priori, quando l'URL non la contiene.
+    ext: str = ""
+
+    @property
+    def is_hls(self) -> bool:
+        return self.url.split("?", 1)[0].lower().endswith(".m3u8")
 
     @property
     def extension(self) -> str:
+        if self.ext:
+            return self.ext
+        if self.is_hls:
+            return "mp4"
         path = self.url.split("?", 1)[0].rsplit("/", 1)[-1]
         if "." in path:
             return path.rsplit(".", 1)[-1].lower()
