@@ -96,7 +96,9 @@ def parse_post_media(
         if not m.get("mediaId") or media_type is None:
             stats["unknown"] += 1
             continue
-        if m.get("drmMediaId"):
+        # "drmMediaId" c'è anche su foto e video HLS normali, quindi non indica DRM.
+        # Un video che non è HLS (es. DASH .mpd) invece richiede un player con DRM.
+        if media_type is MediaType.VIDEO and not urlsplit(url).path.lower().endswith(".m3u8"):
             stats["drm"] += 1
             continue
         stats["ok"] += 1

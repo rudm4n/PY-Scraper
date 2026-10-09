@@ -1,5 +1,6 @@
 import base64
 import json
+from collections import Counter
 from pathlib import Path
 
 import httpx
@@ -46,11 +47,14 @@ def test_parse_post_media_skips_locked_and_drm():
     p = post("p1", [
         img("m1"),
         {"isLocked": True, "type": "video", "maxResolution": 1920},
-        {"isLocked": False, "mediaId": "m3", "type": "video", "url": VIDEO_URL, "drmMediaId": "d"},
-        {"isLocked": False, "mediaId": "m4", "type": "video", "url": VIDEO_URL, "drmMediaId": None},
+        {"isLocked": False, "mediaId": "m3", "type": "video", "url": "https://video.privacy.com.br/x/dash.mpd"},
+        {"isLocked": False, "mediaId": "m4", "type": "video", "url": VIDEO_URL, "drmMediaId": "B1CB"},
+        img("m5", drmMediaId="B3CB"),
     ])
-    items = list(parse_post_media(p, CREATOR, Area.POSTS))
-    assert [m.id for m in items] == ["m1", "m4"]
+    stats = Counter()
+    items = list(parse_post_media(p, CREATOR, Area.POSTS, stats))
+    assert [m.id for m in items] == ["m1", "m4", "m5"]
+    assert stats == Counter(ok=3, locked=1, drm=1)
     assert items[0].media_type is MediaType.IMAGE and items[0].extension == "jpg"
     assert items[1].is_hls and items[1].extension == "mp4"
     assert items[0].created_at.year == 2026 and items[0].post_id == "p1"

@@ -17,7 +17,7 @@ Cosa viene scaricato dai post:
 - video HLS alla qualità più alta, decifrati e uniti. Con `ffmpeg` installato diventano
   `.mp4`, altrimenti restano `.ts`;
 - non vengono scaricati i media bloccati (post a pagamento non acquistati) né quelli
-  protetti da DRM.
+  protetti da DRM (video non HLS, o HLS con cifratura diversa da AES-128).
 
 ## Installazione
 
