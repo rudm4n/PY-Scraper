@@ -140,8 +140,9 @@ class PrivacyAPI:
             resp = self.client.request(method, path, **kwargs)
             if resp.status_code in (401, 403):
                 raise ApiError(
-                    f"{resp.status_code} su {path}: sessione scaduta o header mancanti, "
-                    "riesegui `privacy-scraper auth`."
+                    f"{resp.status_code} su {path}: login scaduto. Rinnovalo: in Firefox, "
+                    "loggato su privacy.com.br, F12 > Rete > F5 > ⚙ > Salva tutto come HAR; "
+                    "poi lancia `privacy-scraper auth --from-har` (vedi GUIDA.md)."
                 )
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == retries:
